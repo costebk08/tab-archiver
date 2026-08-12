@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from datetime import datetime
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
@@ -10,11 +11,11 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from app.autostart import is_start_at_login_enabled, set_start_at_login
-from app.browser_detection import discover_open_browsers, get_browser_by_id
+from app.browser_detection import archive_all_open_browsers, discover_open_browsers, get_browser_by_id
 from app.browser_launcher import open_urls_in_browser
 from app.config import APP_VERSION, RELEASES_PAGE_URL, STATIC_DIR, get_install_root
 from app.settings import get_settings, save_settings
-from app.storage import archive_tabs, get_history
+from app.storage import archive_tabs, export_history_backup, get_history, get_history_file_path, get_latest_backup_path
 from app.updater import check_for_updates
 
 BASE_DIR = get_install_root()
@@ -99,6 +100,45 @@ def create_archive(payload: ArchiveRequest):
     return {"success": True, "date": day_entry["date"]}
 
 
+@app.post("/api/archive-all")
+def create_archive_all():
+    result = archive_all_open_browsers()
+    if not result["success"]:
+        raise HTTPException(status_code=404, detail="No open browsers with detectable tabs were found")
+
+    backup_path = export_history_backup()
+    result["backup_path"] = str(backup_path)
+    result["backup_filename"] = backup_path.name
+    return result
+
+
+@app.post("/api/export-backup")
+def create_export_backup():
+    if not get_history_file_path().exists():
+        raise HTTPException(status_code=404, detail="No archive history exists yet")
+
+    backup_path = export_history_backup()
+    return {
+        "success": True,
+        "backup_path": str(backup_path),
+        "backup_filename": backup_path.name,
+    }
+
+
+@app.get("/api/export-backup/download")
+def download_export_backup():
+    history_path = get_history_file_path()
+    if not history_path.exists():
+        raise HTTPException(status_code=404, detail="No archive history exists yet")
+
+    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    return FileResponse(
+        history_path,
+        media_type="application/json",
+        filename=f"tab-archiver-backup-{timestamp}.json",
+    )
+
+
 @app.get("/api/history")
 def history():
     return get_history()
@@ -112,6 +152,8 @@ def read_settings():
         "start_at_login_active": is_start_at_login_enabled(),
         "version": APP_VERSION,
         "releases_page_url": RELEASES_PAGE_URL,
+        "history_file": str(get_history_file_path()),
+        "latest_backup_path": str(get_latest_backup_path() or ""),
     }
 
 

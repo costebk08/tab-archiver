@@ -6,6 +6,14 @@ const state = {
 };
 
 const renderButton = document.getElementById("renderButton");
+const archiveAllButton = document.getElementById("archiveAllButton");
+const exportBackupButton = document.getElementById("exportBackupButton");
+const heroStatus = document.getElementById("heroStatus");
+const successBanner = document.getElementById("successBanner");
+const successBannerTitle = document.getElementById("successBannerTitle");
+const successBannerText = document.getElementById("successBannerText");
+const downloadBackupButton = document.getElementById("downloadBackupButton");
+const dismissSuccessButton = document.getElementById("dismissSuccessButton");
 const browserModal = document.getElementById("browserModal");
 const tabsModal = document.getElementById("tabsModal");
 const browserList = document.getElementById("browserList");
@@ -168,7 +176,7 @@ function renderHistory(history) {
   const dates = Object.keys(archives).sort((a, b) => b.localeCompare(a));
 
   if (!dates.length) {
-    historyContainer.innerHTML = "<p class='history-empty'>No archived tabs yet. Click the button above to get started.</p>";
+    historyContainer.innerHTML = "<p class='history-empty'>No archived tabs yet. Click Archive All Open Tabs to get started.</p>";
     return;
   }
 
@@ -311,7 +319,61 @@ async function archiveSelectedTabs() {
   }
 }
 
+async function archiveAllOpenTabs() {
+  archiveAllButton.disabled = true;
+  heroStatus.textContent = "Scanning browsers and archiving all open tabs...";
+  heroStatus.className = "status-message";
+
+  try {
+    const result = await fetchJson("/api/archive-all", { method: "POST" });
+    await loadHistory();
+    showSuccessBanner(result);
+    heroStatus.textContent = "";
+  } catch (error) {
+    heroStatus.textContent = error.message;
+    heroStatus.className = "status-message error";
+  } finally {
+    archiveAllButton.disabled = false;
+  }
+}
+
+function showSuccessBanner(result) {
+  if (!successBanner) {
+    return;
+  }
+  successBanner.classList.remove("hidden");
+  successBannerTitle.textContent = "Archive saved";
+  successBannerText.textContent =
+    `Archived ${result.total_tabs} tab${result.total_tabs === 1 ? "" : "s"} across ${result.browser_count} browser${result.browser_count === 1 ? "" : "s"}. ` +
+    `A backup copy was saved to ${result.backup_path}. Copy this file to a USB drive or cloud folder before a full computer reset.`;
+}
+
+async function exportBackup() {
+  exportBackupButton.disabled = true;
+  heroStatus.textContent = "Creating backup copy...";
+  heroStatus.className = "status-message";
+
+  try {
+    const result = await fetchJson("/api/export-backup", { method: "POST" });
+    heroStatus.textContent = `Backup saved to ${result.backup_path}`;
+    heroStatus.className = "status-message success";
+  } catch (error) {
+    heroStatus.textContent = error.message;
+    heroStatus.className = "status-message error";
+  } finally {
+    exportBackupButton.disabled = false;
+  }
+}
+
+function downloadBackupFile() {
+  window.location.href = "/api/export-backup/download";
+}
+
 renderButton.addEventListener("click", openBrowserPicker);
+archiveAllButton.addEventListener("click", archiveAllOpenTabs);
+exportBackupButton.addEventListener("click", exportBackup);
+downloadBackupButton.addEventListener("click", downloadBackupFile);
+dismissSuccessButton.addEventListener("click", () => successBanner.classList.add("hidden"));
 closeBrowserModal.addEventListener("click", () => closeModal(browserModal));
 closeTabsModal.addEventListener("click", () => closeModal(tabsModal));
 selectBrowserButton.addEventListener("click", openTabsPicker);

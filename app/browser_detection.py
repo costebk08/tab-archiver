@@ -100,39 +100,27 @@ def _extract_chromium_tabs(profile_path: Path) -> list[TabInfo]:
     if not sessions_dir.exists():
         return []
 
-    preferred_names = {
-        "Current Session",
-        "Current Tabs",
-        "Last Session",
-        "Last Tabs",
-    }
-    session_files = []
-    for path in sessions_dir.iterdir():
-        if path.is_file() and path.stat().st_size > 8:
-            session_files.append(path)
+    session_candidates = [
+        sessions_dir / "Current Tabs",
+        sessions_dir / "Current Session",
+    ]
 
-    session_files.sort(
-        key=lambda path: (
-            0 if path.name in preferred_names else 1,
-            -path.stat().st_mtime,
-        )
-    )
-
-    all_tabs: dict[str, TabInfo] = {}
-    for session_file in session_files:
+    for session_file in session_candidates:
         copied = _copy_session_file(session_file)
         if not copied:
             continue
         try:
-            for tab in extract_tabs_from_session_path(copied):
-                all_tabs[tab.url] = tab
+            tabs = extract_tabs_from_session_path(copied)
+            if tabs:
+                return tabs
         except Exception:
             continue
 
-    return list(all_tabs.values())
+    return []
 
 
 def _extract_recent_history_tabs(profile_path: Path, limit: int = 40) -> list[TabInfo]:
+    """Legacy fallback kept for diagnostics; not used in normal tab discovery."""
     history_file = profile_path / "History"
     copied = _copy_session_file(history_file)
     if not copied:
@@ -172,11 +160,15 @@ def _extract_firefox_tabs(profiles_root: Path) -> list[TabInfo]:
             continue
 
         session_file = profile_dir / "sessionstore.jsonlz4"
+        if session_file.exists():
+            extracted = _parse_firefox_session(session_file)
+            for tab in extracted:
+                tabs[tab.url] = tab
+            continue
+
         recovery_file = profile_dir / "sessionstore-backups" / "recovery.jsonlz4"
-        for candidate in (session_file, recovery_file):
-            if not candidate.exists():
-                continue
-            extracted = _parse_firefox_session(candidate)
+        if recovery_file.exists():
+            extracted = _parse_firefox_session(recovery_file)
             for tab in extracted:
                 tabs[tab.url] = tab
 
@@ -335,8 +327,6 @@ def discover_open_browsers() -> list[BrowserInstance]:
         for profile_label, profile_path in _discover_chromium_profiles(browser_key, definition):
             tabs = _extract_chromium_tabs(profile_path)
             if not tabs:
-                tabs = _extract_recent_history_tabs(profile_path)
-            if not tabs:
                 continue
 
             display_name = _build_display_name(definition.display_name, profile_label)
@@ -359,3 +349,41 @@ def get_browser_by_id(browser_id: str) -> BrowserInstance | None:
         if browser.id == browser_id:
             return browser
     return None
+
+
+def archive_all_open_browsers() -> dict[str, object]:
+    from app.storage import archive_tabs
+
+    browsers = discover_open_browsers()
+    archived: list[dict[str, object]] = []
+    total_tabs = 0
+    date_value = ""
+
+    for browser in browsers:
+        tab_payload = [{"url": tab.url, "title": tab.title} for tab in browser.tabs]
+        if not tab_payload:
+            continue
+        day_entry = archive_tabs(
+            browser_id=browser.id,
+            browser_name=browser.display_name,
+            browser_key=browser.browser_key,
+            executable=browser.executable,
+            tabs=tab_payload,
+        )
+        date_value = day_entry["date"]
+        total_tabs += len(tab_payload)
+        archived.append(
+            {
+                "browser_id": browser.id,
+                "browser_name": browser.display_name,
+                "tab_count": len(tab_payload),
+            }
+        )
+
+    return {
+        "success": bool(archived),
+        "date": date_value,
+        "browser_count": len(archived),
+        "total_tabs": total_tabs,
+        "browsers": archived,
+    }

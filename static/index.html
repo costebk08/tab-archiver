@@ -30,15 +30,38 @@
       </div>
 
       <main class="hero">
-        <button id="renderButton" class="primary-button" type="button">
-          Render Open Websites
-        </button>
+        <div class="hero-copy">
+          <p class="hero-subtitle">Save every open tab across your browsers before a restart or reset.</p>
+        </div>
+        <div class="hero-actions">
+          <button id="archiveAllButton" class="primary-button" type="button">
+            Archive All Open Tabs
+          </button>
+          <button id="renderButton" class="secondary-button hero-secondary" type="button">
+            Pick Browser Manually
+          </button>
+          <button id="exportBackupButton" class="ghost-button hero-secondary" type="button">
+            Export Backup
+          </button>
+        </div>
+        <p id="heroStatus" class="status-message hero-status"></p>
       </main>
+
+      <div id="successBanner" class="success-banner hidden">
+        <div>
+          <strong id="successBannerTitle">Archive saved</strong>
+          <p id="successBannerText"></p>
+        </div>
+        <div class="success-actions">
+          <button id="downloadBackupButton" class="secondary-button" type="button">Download backup</button>
+          <button id="dismissSuccessButton" class="ghost-button" type="button">Dismiss</button>
+        </div>
+      </div>
 
       <section class="history-panel">
         <h2>Archive History</h2>
         <div id="historyContainer">
-          <p class="history-empty">No archived tabs yet. Click the button above to get started.</p>
+          <p class="history-empty">No archived tabs yet. Click Archive All Open Tabs to get started.</p>
         </div>
       </section>
     </div>

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import threading
 from datetime import date, datetime
 from pathlib import Path
@@ -10,6 +11,7 @@ from typing import Any
 
 DATA_DIR = Path.home() / ".tab-archiver"
 HISTORY_FILE = DATA_DIR / "history.json"
+BACKUP_DIR = DATA_DIR / "backups"
 
 _lock = threading.Lock()
 
@@ -88,3 +90,48 @@ def archive_tabs(
         _save_history(data)
 
         return day_entry
+
+
+def get_history_file_path() -> Path:
+    return HISTORY_FILE
+
+
+def export_history_backup() -> Path:
+    with _lock:
+        _ensure_data_dir()
+        BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        backup_path = BACKUP_DIR / f"tab-archiver-backup-{timestamp}.json"
+
+        if HISTORY_FILE.exists():
+            shutil.copy2(HISTORY_FILE, backup_path)
+        else:
+            with open(backup_path, "w", encoding="utf-8") as file:
+                json.dump({"archives": {}}, file, indent=2)
+
+        downloads_path = _copy_to_downloads(backup_path, timestamp)
+        return downloads_path or backup_path
+
+
+def _copy_to_downloads(source: Path, timestamp: str) -> Path | None:
+    downloads_candidates = [
+        Path.home() / "Downloads",
+        Path.home() / "Desktop",
+    ]
+    for directory in downloads_candidates:
+        if not directory.exists():
+            continue
+        destination = directory / f"tab-archiver-backup-{timestamp}.json"
+        try:
+            shutil.copy2(source, destination)
+            return destination
+        except OSError:
+            continue
+    return None
+
+
+def get_latest_backup_path() -> Path | None:
+    if not BACKUP_DIR.exists():
+        return None
+    backups = sorted(BACKUP_DIR.glob("tab-archiver-backup-*.json"), reverse=True)
+    return backups[0] if backups else None

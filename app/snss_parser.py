@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import struct
+from collections import defaultdict
 from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
@@ -11,6 +12,10 @@ from pathlib import Path
 
 class InvalidSNSSFileException(Exception):
     pass
+
+
+TAB_CLOSED_COMMANDS = {3, 16}
+WINDOW_CLOSED_COMMANDS = {4, 17}
 
 
 @dataclass
@@ -50,45 +55,101 @@ def parse_snss_file(path: Path) -> list[SNSSCommand]:
     return commands
 
 
+def _read_uint32(content: bytes, offset: int = 0) -> int | None:
+    if len(content) < offset + 4:
+        return None
+    return struct.unpack("I", content[offset : offset + 4])[0]
+
+
+def _parse_update_tab_navigation(content: bytes) -> tuple[int, str, str] | None:
+    stream = BytesIO(content)
+    stream.seek(0, os.SEEK_END)
+    pickle_size = stream.tell()
+    stream.seek(0, os.SEEK_SET)
+
+    if pickle_size < 12:
+        return None
+
+    struct.unpack("I", stream.read(4))
+    tab_id = struct.unpack("I", stream.read(4))[0]
+    struct.unpack("I", stream.read(4))
+
+    def read_str8() -> str:
+        str_length = struct.unpack("I", stream.read(4))[0]
+        padding = 4 - (str_length % 4) if str_length % 4 else 0
+        if str_length > pickle_size - stream.tell():
+            return ""
+        raw = stream.read(str_length + padding)[:str_length]
+        return raw.decode("utf-8", errors="ignore")
+
+    def read_str16() -> str:
+        str_length = struct.unpack("I", stream.read(4))[0] * 2
+        padding = 4 - (str_length % 4) if str_length % 4 else 0
+        if str_length > pickle_size - stream.tell():
+            return ""
+        raw = stream.read(str_length + padding)[:str_length]
+        return raw.decode("utf-16", errors="ignore")
+
+    url = read_str8()
+    title = read_str16()
+    return tab_id, url, title
+
+
+def _is_valid_web_url(url: str) -> bool:
+    if not url:
+        return False
+    lowered = url.lower()
+    if lowered.startswith(("chrome://", "edge://", "about:", "devtools://", "brave://")):
+        return False
+    return lowered.startswith(("http://", "https://", "file://"))
+
+
 def extract_tabs_from_commands(commands: list[SNSSCommand]) -> list[TabInfo]:
-    tabs_by_id: dict[int, TabInfo] = {}
+    open_tabs: dict[int, TabInfo] = {}
+    tab_to_window: dict[int, int] = {}
+    window_tabs: dict[int, set[int]] = defaultdict(set)
 
     for command in commands:
-        if command.id != 6:
+        if command.id == 0:
+            tab_id = _read_uint32(command.content, 0)
+            window_id = _read_uint32(command.content, 4)
+            if tab_id is None or window_id is None:
+                continue
+            tab_to_window[tab_id] = window_id
+            window_tabs[window_id].add(tab_id)
             continue
 
-        content = BytesIO(command.content)
-        content.seek(0, os.SEEK_END)
-        pickle_size = content.tell()
-        content.seek(0, os.SEEK_SET)
+        if command.id == 6:
+            parsed = _parse_update_tab_navigation(command.content)
+            if not parsed:
+                continue
+            tab_id, url, title = parsed
+            if _is_valid_web_url(url):
+                open_tabs[tab_id] = TabInfo(tab_id=tab_id, url=url, title=title or url)
+            else:
+                open_tabs.pop(tab_id, None)
+            continue
 
-        struct.unpack("I", content.read(4))
-        tab_id = struct.unpack("I", content.read(4))[0]
-        struct.unpack("I", content.read(4))
+        if command.id in TAB_CLOSED_COMMANDS:
+            tab_id = _read_uint32(command.content, 0)
+            if tab_id is None:
+                continue
+            open_tabs.pop(tab_id, None)
+            window_id = tab_to_window.pop(tab_id, None)
+            if window_id is not None:
+                window_tabs[window_id].discard(tab_id)
+            continue
 
-        def read_str8() -> str:
-            str_length = struct.unpack("I", content.read(4))[0]
-            padding = 4 - (str_length % 4) if str_length % 4 else 0
-            if str_length > pickle_size - content.tell():
-                return ""
-            raw = content.read(str_length + padding)[:str_length]
-            return raw.decode("utf-8", errors="ignore")
+        if command.id in WINDOW_CLOSED_COMMANDS:
+            window_id = _read_uint32(command.content, 0)
+            if window_id is None:
+                continue
+            for tab_id in list(window_tabs.get(window_id, set())):
+                open_tabs.pop(tab_id, None)
+                tab_to_window.pop(tab_id, None)
+            window_tabs.pop(window_id, None)
 
-        def read_str16() -> str:
-            str_length = struct.unpack("I", content.read(4))[0] * 2
-            padding = 4 - (str_length % 4) if str_length % 4 else 0
-            if str_length > pickle_size - content.tell():
-                return ""
-            raw = content.read(str_length + padding)[:str_length]
-            return raw.decode("utf-16", errors="ignore")
-
-        url = read_str8()
-        title = read_str16()
-
-        if url and not url.startswith(("chrome://", "edge://", "about:", "devtools://")):
-            tabs_by_id[tab_id] = TabInfo(tab_id=tab_id, url=url, title=title or url)
-
-    return list(tabs_by_id.values())
+    return list(open_tabs.values())
 
 
 def extract_tabs_from_session_path(path: Path) -> list[TabInfo]:

@@ -19,8 +19,11 @@ Get the latest packaged build from the [download page](https://costebk08.github.
 ### How to use
 
 1. **Download** the build for your operating system
-2. **Open the app** and leave it running
-3. Click **Render Open Websites**, choose a browser, select tabs, and **Archive**
+2. Click **Archive All Open Tabs** before a restart or reset
+3. **Export Backup** (automatic after archive-all) to USB or cloud if wiping the machine
+4. After you're back: expand today's archive and click **Open All**
+
+For selective archiving, use **Pick Browser Manually**.
 
 ## Features
 
