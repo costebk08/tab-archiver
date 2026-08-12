@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 
 APP_NAME = "Tab Archiver"
-APP_VERSION = "1.1.1"
+APP_VERSION = "1.2.0"
 GITHUB_REPO = os.environ.get("TAB_ARCHIVER_GITHUB_REPO", "costebk08/tab-archiver")
 RELEASES_PAGE_URL = f"https://github.com/{GITHUB_REPO}/releases/latest"
 

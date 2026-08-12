@@ -104,6 +104,26 @@
       </div>
     </div>
 
+    <div id="saveAsModal" class="modal-backdrop" aria-hidden="true">
+      <div class="modal" role="dialog" aria-labelledby="saveAsModalTitle">
+        <div class="modal-header">
+          <h3 id="saveAsModalTitle">Save Archive As</h3>
+        </div>
+        <div class="modal-body">
+          <label class="field-label" for="saveAsNameInput">Archive name</label>
+          <input id="saveAsNameInput" class="text-input" type="text" maxlength="128" />
+          <p id="saveAsHelp" class="status-message">
+            Use a unique name for this saved tab snapshot. The default date name will add _1, _2, and so on if needed.
+          </p>
+          <p id="saveAsStatus" class="status-message"></p>
+        </div>
+        <div class="modal-footer">
+          <button id="cancelSaveAsButton" class="ghost-button" type="button">Cancel</button>
+          <button id="confirmSaveAsButton" class="primary-button" type="button">Save</button>
+        </div>
+      </div>
+    </div>
+
     <script src="/static/app.js"></script>
   </body>
 </html>

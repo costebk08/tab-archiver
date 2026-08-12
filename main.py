@@ -15,7 +15,19 @@ from app.browser_detection import archive_all_open_browsers, discover_open_brows
 from app.browser_launcher import open_urls_in_browser
 from app.config import APP_VERSION, RELEASES_PAGE_URL, STATIC_DIR, get_install_root
 from app.settings import get_settings, save_settings
-from app.storage import archive_tabs, export_history_backup, get_history, get_history_file_path, get_latest_backup_path
+from app.storage import (
+    ArchiveNotFoundError,
+    DuplicateSaveNameError,
+    InvalidSaveNameError,
+    archive_browser_tabs,
+    delete_archive,
+    export_history_backup,
+    get_default_save_name,
+    get_history,
+    get_history_file_path,
+    get_latest_backup_path,
+    resolve_save_name,
+)
 from app.updater import check_for_updates
 
 BASE_DIR = get_install_root()
@@ -26,7 +38,12 @@ app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 class ArchiveRequest(BaseModel):
     browser_id: str
+    save_name: str
     tabs: list[dict[str, str]] = Field(default_factory=list)
+
+
+class ArchiveAllRequest(BaseModel):
+    save_name: str
 
 
 class OpenAllRequest(BaseModel):
@@ -80,6 +97,11 @@ def list_browser_tabs(browser_id: str):
     }
 
 
+@app.get("/api/archive-name/default")
+def default_archive_name():
+    return {"save_name": get_default_save_name()}
+
+
 @app.post("/api/archive")
 def create_archive(payload: ArchiveRequest):
     browser = get_browser_by_id(payload.browser_id)
@@ -89,7 +111,15 @@ def create_archive(payload: ArchiveRequest):
     if not payload.tabs:
         raise HTTPException(status_code=400, detail="No tabs selected for archive")
 
-    day_entry = archive_tabs(
+    try:
+        save_name = resolve_save_name(payload.save_name)
+    except InvalidSaveNameError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except DuplicateSaveNameError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    save_entry = archive_browser_tabs(
+        save_name=save_name,
         browser_id=browser.id,
         browser_name=browser.display_name,
         browser_key=browser.browser_key,
@@ -97,12 +127,19 @@ def create_archive(payload: ArchiveRequest):
         tabs=payload.tabs,
     )
 
-    return {"success": True, "date": day_entry["date"]}
+    return {"success": True, "save_name": save_name, "updated_at": save_entry["updated_at"]}
 
 
 @app.post("/api/archive-all")
-def create_archive_all():
-    result = archive_all_open_browsers()
+def create_archive_all(payload: ArchiveAllRequest):
+    try:
+        save_name = resolve_save_name(payload.save_name)
+    except InvalidSaveNameError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except DuplicateSaveNameError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    result = archive_all_open_browsers(save_name)
     if not result["success"]:
         raise HTTPException(status_code=404, detail="No open browsers with detectable tabs were found")
 
@@ -137,6 +174,18 @@ def download_export_backup():
         media_type="application/json",
         filename=f"tab-archiver-backup-{timestamp}.json",
     )
+
+
+@app.delete("/api/archives/{save_name}")
+def remove_archive(save_name: str):
+    try:
+        delete_archive(save_name)
+    except InvalidSaveNameError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except ArchiveNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    return {"success": True, "save_name": save_name}
 
 
 @app.get("/api/history")

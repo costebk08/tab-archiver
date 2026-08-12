@@ -3,6 +3,8 @@ const state = {
   selectedBrowserId: null,
   currentBrowser: null,
   currentTabs: [],
+  pendingArchiveAction: null,
+  defaultSaveName: "",
 };
 
 const renderButton = document.getElementById("renderButton");
@@ -16,6 +18,11 @@ const downloadBackupButton = document.getElementById("downloadBackupButton");
 const dismissSuccessButton = document.getElementById("dismissSuccessButton");
 const browserModal = document.getElementById("browserModal");
 const tabsModal = document.getElementById("tabsModal");
+const saveAsModal = document.getElementById("saveAsModal");
+const saveAsNameInput = document.getElementById("saveAsNameInput");
+const saveAsStatus = document.getElementById("saveAsStatus");
+const confirmSaveAsButton = document.getElementById("confirmSaveAsButton");
+const cancelSaveAsButton = document.getElementById("cancelSaveAsButton");
 const browserList = document.getElementById("browserList");
 const browserStatus = document.getElementById("browserStatus");
 const selectBrowserButton = document.getElementById("selectBrowserButton");
@@ -186,15 +193,18 @@ function getSelectedTabs() {
   return selected;
 }
 
-function createCollapsible(title, contentBuilder, extraClass = "") {
+function createCollapsible(title, contentBuilder, extraClass = "", headerExtrasBuilder = null) {
   const wrapper = document.createElement("div");
   wrapper.className = `date-record ${extraClass}`.trim();
+
+  const headerRow = document.createElement("div");
+  headerRow.className = extraClass.includes("archive-record") ? "archive-header" : "";
 
   const header = document.createElement("button");
   header.type = "button";
   header.className = extraClass.includes("browser-record") ? "browser-header" : "date-header";
   header.innerHTML = `
-    <span>${title}</span>
+    ${title}
     <span class="chevron">›</span>
   `;
 
@@ -206,77 +216,134 @@ function createCollapsible(title, contentBuilder, extraClass = "") {
     wrapper.classList.toggle("expanded");
   });
 
-  wrapper.appendChild(header);
+  headerRow.appendChild(header);
+  if (headerExtrasBuilder) {
+    headerExtrasBuilder(headerRow);
+  }
+
+  wrapper.appendChild(headerRow);
   wrapper.appendChild(content);
   return wrapper;
 }
 
+function formatSavedAt(value) {
+  if (!value) {
+    return "";
+  }
+  const date = new Date(value.includes("T") ? value : `${value}T00:00:00`);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+  return date.toLocaleString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+async function deleteArchive(saveName) {
+  const confirmed = window.confirm(`Delete the saved archive "${saveName}"? This cannot be undone.`);
+  if (!confirmed) {
+    return;
+  }
+
+  await fetchJson(`/api/archives/${encodeURIComponent(saveName)}`, { method: "DELETE" });
+  await loadHistory();
+}
+
 function renderHistory(history) {
   const archives = history.archives || {};
-  const dates = Object.keys(archives).sort((a, b) => b.localeCompare(a));
+  const saveNames = Object.keys(archives).sort((a, b) => {
+    const left = archives[a]?.updated_at || archives[a]?.created_at || "";
+    const right = archives[b]?.updated_at || archives[b]?.created_at || "";
+    return right.localeCompare(left) || b.localeCompare(a);
+  });
 
-  if (!dates.length) {
+  if (!saveNames.length) {
     historyContainer.innerHTML = "<p class='history-empty'>No archived tabs yet. Click Archive All Open Tabs to get started.</p>";
     return;
   }
 
   historyContainer.innerHTML = "";
 
-  dates.forEach((dateKey) => {
-    const day = archives[dateKey];
-    const browsers = Object.values(day.browsers || {});
+  saveNames.forEach((saveName) => {
+    const saveEntry = archives[saveName];
+    const browsers = Object.values(saveEntry.browsers || {});
+    const totalTabs = browsers.reduce((count, browser) => count + (browser.tabs || []).length, 0);
+    const savedAt = formatSavedAt(saveEntry.updated_at || saveEntry.created_at);
 
-    const dateNode = createCollapsible(formatDate(dateKey), (browserContainer) => {
-      browsers.forEach((browser) => {
-        const tabs = browser.tabs || [];
-        const browserNode = createCollapsible(
-          `${browser.browser_name} (${tabs.length} site${tabs.length === 1 ? "" : "s"})`,
-          (tabContainer) => {
-            const actions = document.createElement("div");
-            actions.className = "browser-actions";
-            const openAllButton = document.createElement("button");
-            openAllButton.type = "button";
-            openAllButton.className = "secondary-button";
-            openAllButton.textContent = "Open All";
-            openAllButton.addEventListener("click", async (event) => {
-              event.stopPropagation();
-              try {
-                await fetchJson("/api/open-all", {
-                  method: "POST",
-                  body: JSON.stringify({
-                    browser_key: browser.browser_key,
-                    executable: browser.executable,
-                    urls: tabs.map((tab) => tab.url),
-                  }),
-                });
-              } catch (error) {
-                alert(error.message);
-              }
-            });
-            actions.appendChild(openAllButton);
-            tabContainer.appendChild(actions);
+    const archiveNode = createCollapsible(
+      `<span>${escapeHtml(saveName)}</span><span class="archive-meta">${totalTabs} tab${totalTabs === 1 ? "" : "s"} · ${escapeHtml(savedAt)}</span>`,
+      (browserContainer) => {
+        browsers.forEach((browser) => {
+          const tabs = browser.tabs || [];
+          const browserNode = createCollapsible(
+            `${escapeHtml(browser.browser_name)} (${tabs.length} site${tabs.length === 1 ? "" : "s"})`,
+            (tabContainer) => {
+              const actions = document.createElement("div");
+              actions.className = "browser-actions";
+              const openAllButton = document.createElement("button");
+              openAllButton.type = "button";
+              openAllButton.className = "secondary-button";
+              openAllButton.textContent = "Open All";
+              openAllButton.addEventListener("click", async (event) => {
+                event.stopPropagation();
+                try {
+                  await fetchJson("/api/open-all", {
+                    method: "POST",
+                    body: JSON.stringify({
+                      browser_key: browser.browser_key,
+                      executable: browser.executable,
+                      urls: tabs.map((tab) => tab.url),
+                    }),
+                  });
+                } catch (error) {
+                  alert(error.message);
+                }
+              });
+              actions.appendChild(openAllButton);
+              tabContainer.appendChild(actions);
 
-            tabs.forEach((tab) => {
-              const item = document.createElement("div");
-              item.className = "tab-item";
-              const link = document.createElement("a");
-              link.className = "tab-link";
-              link.href = tab.url;
-              link.target = "_blank";
-              link.rel = "noopener noreferrer";
-              link.textContent = tab.title || tab.url;
-              item.appendChild(link);
-              tabContainer.appendChild(item);
-            });
-          },
-          "browser-record"
-        );
+              tabs.forEach((tab) => {
+                const item = document.createElement("div");
+                item.className = "tab-item";
+                const link = document.createElement("a");
+                link.className = "tab-link";
+                link.href = tab.url;
+                link.target = "_blank";
+                link.rel = "noopener noreferrer";
+                link.textContent = tab.title || tab.url;
+                item.appendChild(link);
+                tabContainer.appendChild(item);
+              });
+            },
+            "browser-record"
+          );
 
-        browserContainer.appendChild(browserNode);
-      });
-    });
+          browserContainer.appendChild(browserNode);
+        });
+      },
+      "archive-record",
+      (headerRow) => {
+        const deleteButton = document.createElement("button");
+        deleteButton.type = "button";
+        deleteButton.className = "danger-button";
+        deleteButton.textContent = "Delete";
+        deleteButton.addEventListener("click", async (event) => {
+          event.stopPropagation();
+          try {
+            await deleteArchive(saveName);
+          } catch (error) {
+            alert(error.message);
+          }
+        });
+        headerRow.appendChild(deleteButton);
+      }
+    );
 
-    historyContainer.appendChild(dateNode);
+    historyContainer.appendChild(archiveNode);
   });
 }
 
@@ -326,6 +393,80 @@ async function openTabsPicker() {
   }
 }
 
+async function loadDefaultSaveName() {
+  const data = await fetchJson("/api/archive-name/default");
+  state.defaultSaveName = data.save_name || "";
+  return state.defaultSaveName;
+}
+
+function openSaveAsModal(action) {
+  state.pendingArchiveAction = action;
+  saveAsStatus.textContent = "";
+  saveAsStatus.className = "status-message";
+  saveAsNameInput.value = state.defaultSaveName;
+  openModal(saveAsModal);
+  saveAsNameInput.focus();
+  saveAsNameInput.select();
+}
+
+async function performPendingArchive(saveName) {
+  if (state.pendingArchiveAction === "all") {
+    return fetchJson("/api/archive-all", {
+      method: "POST",
+      body: JSON.stringify({ save_name: saveName }),
+    });
+  }
+
+  if (state.pendingArchiveAction === "single") {
+    const selectedTabs = getSelectedTabs();
+    return fetchJson("/api/archive", {
+      method: "POST",
+      body: JSON.stringify({
+        browser_id: state.selectedBrowserId,
+        save_name: saveName,
+        tabs: selectedTabs,
+      }),
+    });
+  }
+
+  throw new Error("No archive action is pending.");
+}
+
+async function confirmSaveAs() {
+  const saveName = saveAsNameInput.value.trim();
+  if (!saveName) {
+    saveAsStatus.textContent = "Enter a name for this archive.";
+    saveAsStatus.className = "status-message error";
+    return;
+  }
+
+  confirmSaveAsButton.disabled = true;
+  saveAsStatus.textContent = "Saving archive...";
+  saveAsStatus.className = "status-message";
+
+  try {
+    const result = await performPendingArchive(saveName);
+    await loadHistory();
+    closeModal(saveAsModal);
+
+    if (state.pendingArchiveAction === "all") {
+      showSuccessBanner(result);
+      heroStatus.textContent = "";
+    } else {
+      closeModal(tabsModal);
+      heroStatus.textContent = `Archive "${result.save_name}" saved to local history.`;
+      heroStatus.className = "status-message success";
+    }
+
+    state.pendingArchiveAction = null;
+  } catch (error) {
+    saveAsStatus.textContent = error.message;
+    saveAsStatus.className = "status-message error";
+  } finally {
+    confirmSaveAsButton.disabled = false;
+  }
+}
+
 async function archiveSelectedTabs() {
   const selectedTabs = getSelectedTabs();
   if (!selectedTabs.length) {
@@ -334,41 +475,27 @@ async function archiveSelectedTabs() {
     return;
   }
 
-  archiveButton.disabled = true;
-  tabsStatus.textContent = "Archiving selected websites...";
-  tabsStatus.className = "status-message";
-
-  try {
-    await fetchJson("/api/archive", {
-      method: "POST",
-      body: JSON.stringify({
-        browser_id: state.selectedBrowserId,
-        tabs: selectedTabs,
-      }),
-    });
-
-    tabsStatus.textContent = "Archive saved to local history.";
-    tabsStatus.className = "status-message success";
-    await loadHistory();
-    setTimeout(() => closeModal(tabsModal), 700);
-  } catch (error) {
-    tabsStatus.textContent = error.message;
-    tabsStatus.className = "status-message error";
-  } finally {
-    archiveButton.disabled = false;
-  }
+  tabsStatus.textContent = "";
+  await loadDefaultSaveName();
+  openSaveAsModal("single");
 }
 
 async function archiveAllOpenTabs() {
   archiveAllButton.disabled = true;
-  heroStatus.textContent = "Scanning browsers and archiving all open tabs...";
+  heroStatus.textContent = "Scanning browsers...";
   heroStatus.className = "status-message";
 
   try {
-    const result = await fetchJson("/api/archive-all", { method: "POST" });
-    await loadHistory();
-    showSuccessBanner(result);
+    const data = await fetchJson("/api/browsers");
+    if (!(data.browsers || []).length) {
+      heroStatus.textContent = "No open browsers with detectable tabs were found.";
+      heroStatus.className = "status-message error";
+      return;
+    }
+
     heroStatus.textContent = "";
+    await loadDefaultSaveName();
+    openSaveAsModal("all");
   } catch (error) {
     heroStatus.textContent = error.message;
     heroStatus.className = "status-message error";
@@ -384,7 +511,7 @@ function showSuccessBanner(result) {
   successBanner.classList.remove("hidden");
   successBannerTitle.textContent = "Archive saved";
   successBannerText.textContent =
-    `Archived ${result.total_tabs} tab${result.total_tabs === 1 ? "" : "s"} across ${result.browser_count} browser${result.browser_count === 1 ? "" : "s"}. ` +
+    `Saved "${result.save_name}" with ${result.total_tabs} tab${result.total_tabs === 1 ? "" : "s"} across ${result.browser_count} browser${result.browser_count === 1 ? "" : "s"}. ` +
     `A backup copy was saved to ${result.backup_path}. Copy this file to a USB drive or cloud folder before a full computer reset.`;
 }
 
@@ -420,6 +547,23 @@ selectBrowserButton.addEventListener("click", openTabsPicker);
 selectAllButton.addEventListener("click", () => setCheckboxState(true));
 deselectAllButton.addEventListener("click", () => setCheckboxState(false));
 archiveButton.addEventListener("click", archiveSelectedTabs);
+confirmSaveAsButton.addEventListener("click", confirmSaveAs);
+cancelSaveAsButton.addEventListener("click", () => {
+  state.pendingArchiveAction = null;
+  closeModal(saveAsModal);
+});
+saveAsModal.addEventListener("click", (event) => {
+  if (event.target === saveAsModal) {
+    state.pendingArchiveAction = null;
+    closeModal(saveAsModal);
+  }
+});
+saveAsNameInput.addEventListener("keydown", (event) => {
+  if (event.key === "Enter") {
+    event.preventDefault();
+    confirmSaveAs();
+  }
+});
 
 browserModal.addEventListener("click", (event) => {
   if (event.target === browserModal) closeModal(browserModal);
@@ -483,3 +627,4 @@ if (startAtLogin) {
 
 loadSettings().catch(() => {});
 loadUpdateStatus().catch(() => {});
+loadDefaultSaveName().catch(() => {});

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import struct
 from collections import defaultdict
 from dataclasses import dataclass
@@ -16,6 +17,8 @@ class InvalidSNSSFileException(Exception):
 
 TAB_CLOSED_COMMANDS = {3, 16}
 WINDOW_CLOSED_COMMANDS = {4, 17}
+NAVIGATION_COMMANDS = {5, 6, 15}
+HTTP_URL_PATTERN = re.compile(rb"https?://[^\x00\r\n\t \"<>]{4,}")
 
 
 @dataclass
@@ -104,10 +107,35 @@ def _is_valid_web_url(url: str) -> bool:
     return lowered.startswith(("http://", "https://", "file://"))
 
 
-def extract_tabs_from_commands(commands: list[SNSSCommand]) -> list[TabInfo]:
+def _extract_urls_from_content(content: bytes) -> list[str]:
+    urls: list[str] = []
+    for match in HTTP_URL_PATTERN.finditer(content):
+        url = match.group(0).decode("utf-8", errors="ignore").rstrip("\\")
+        if _is_valid_web_url(url):
+            urls.append(url)
+    return urls
+
+
+def _dedupe_tabs(tabs: list[TabInfo]) -> list[TabInfo]:
+    seen: set[str] = set()
+    unique: list[TabInfo] = []
+    for tab in tabs:
+        if tab.url in seen:
+            continue
+        seen.add(tab.url)
+        unique.append(tab)
+    return unique
+
+
+def extract_tabs_from_commands(
+    commands: list[SNSSCommand],
+    *,
+    respect_close_events: bool = True,
+) -> list[TabInfo]:
     open_tabs: dict[int, TabInfo] = {}
     tab_to_window: dict[int, int] = {}
     window_tabs: dict[int, set[int]] = defaultdict(set)
+    synthetic_id = 1_000_000
 
     for command in commands:
         if command.id == 0:
@@ -119,15 +147,25 @@ def extract_tabs_from_commands(commands: list[SNSSCommand]) -> list[TabInfo]:
             window_tabs[window_id].add(tab_id)
             continue
 
-        if command.id == 6:
+        if command.id in NAVIGATION_COMMANDS:
             parsed = _parse_update_tab_navigation(command.content)
-            if not parsed:
-                continue
-            tab_id, url, title = parsed
-            if _is_valid_web_url(url):
-                open_tabs[tab_id] = TabInfo(tab_id=tab_id, url=url, title=title or url)
+            if parsed:
+                tab_id, url, title = parsed
+                if _is_valid_web_url(url):
+                    open_tabs[tab_id] = TabInfo(tab_id=tab_id, url=url, title=title or url)
+                else:
+                    open_tabs.pop(tab_id, None)
             else:
-                open_tabs.pop(tab_id, None)
+                for url in _extract_urls_from_content(command.content):
+                    open_tabs[synthetic_id] = TabInfo(
+                        tab_id=synthetic_id,
+                        url=url,
+                        title=url,
+                    )
+                    synthetic_id += 1
+            continue
+
+        if not respect_close_events:
             continue
 
         if command.id in TAB_CLOSED_COMMANDS:
@@ -149,9 +187,24 @@ def extract_tabs_from_commands(commands: list[SNSSCommand]) -> list[TabInfo]:
                 tab_to_window.pop(tab_id, None)
             window_tabs.pop(window_id, None)
 
-    return list(open_tabs.values())
+    return _dedupe_tabs(list(open_tabs.values()))
 
 
 def extract_tabs_from_session_path(path: Path) -> list[TabInfo]:
     commands = parse_snss_file(path)
-    return extract_tabs_from_commands(commands)
+    for respect_close_events in (False, True):
+        tabs = extract_tabs_from_commands(commands, respect_close_events=respect_close_events)
+        if tabs:
+            return tabs
+    return []
+
+
+def extract_tabs_from_session_commands(commands: list[SNSSCommand]) -> list[TabInfo]:
+    if not commands:
+        return []
+
+    for respect_close_events in (False, True):
+        tabs = extract_tabs_from_commands(commands, respect_close_events=respect_close_events)
+        if tabs:
+            return tabs
+    return []

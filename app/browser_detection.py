@@ -19,7 +19,7 @@ from app.platform_config import (
     local_state_path,
     resolve_browser_executable,
 )
-from app.snss_parser import TabInfo, extract_tabs_from_session_path
+from app.snss_parser import TabInfo, extract_tabs_from_session_commands, parse_snss_file
 
 
 @dataclass
@@ -95,32 +95,75 @@ def _copy_session_file(source: Path) -> Path | None:
         return None
 
 
+def _list_chromium_session_files(sessions_dir: Path) -> list[Path]:
+    session_files: list[Path] = []
+
+    for name in ("Current Tabs", "Current Session", "Last Session", "Last Tabs"):
+        candidate = sessions_dir / name
+        if candidate.exists() and candidate.is_file():
+            session_files.append(candidate)
+
+    session_files.extend(
+        sorted(
+            (path for path in sessions_dir.glob("Session_*") if path.is_file()),
+            key=lambda path: path.stat().st_mtime,
+            reverse=True,
+        )
+    )
+    session_files.extend(
+        sorted(
+            (path for path in sessions_dir.glob("Tabs_*") if path.is_file()),
+            key=lambda path: path.stat().st_mtime,
+            reverse=True,
+        )
+    )
+
+    unique_files: list[Path] = []
+    seen: set[str] = set()
+    for path in session_files:
+        key = str(path.resolve())
+        if key in seen:
+            continue
+        seen.add(key)
+        unique_files.append(path)
+    return unique_files
+
+
 def _extract_chromium_tabs(profile_path: Path) -> list[TabInfo]:
     sessions_dir = profile_path / "Sessions"
     if not sessions_dir.exists():
         return []
 
-    session_candidates = [
-        sessions_dir / "Current Tabs",
-        sessions_dir / "Current Session",
-    ]
-
-    for session_file in session_candidates:
+    merged_commands = []
+    for session_file in _list_chromium_session_files(sessions_dir):
         copied = _copy_session_file(session_file)
         if not copied:
             continue
         try:
-            tabs = extract_tabs_from_session_path(copied)
+            merged_commands.extend(parse_snss_file(copied))
+        except Exception:
+            continue
+
+    tabs = extract_tabs_from_session_commands(merged_commands)
+    if tabs:
+        return tabs
+
+    for session_file in _list_chromium_session_files(sessions_dir):
+        copied = _copy_session_file(session_file)
+        if not copied:
+            continue
+        try:
+            tabs = extract_tabs_from_session_commands(parse_snss_file(copied))
             if tabs:
                 return tabs
         except Exception:
             continue
 
-    return []
+    return _extract_recent_history_tabs(profile_path, limit=120)
 
 
 def _extract_recent_history_tabs(profile_path: Path, limit: int = 40) -> list[TabInfo]:
-    """Legacy fallback kept for diagnostics; not used in normal tab discovery."""
+    """Fallback when session files cannot be read while the browser is running."""
     history_file = profile_path / "History"
     copied = _copy_session_file(history_file)
     if not copied:
@@ -259,10 +302,16 @@ def _discover_chromium_profiles(
             profile_dir = match.group(1).strip()
         running_profiles.add(profile_dir)
 
-    if not running_profiles:
+    candidate_dirs: set[str] = set(running_profiles)
+
+    if not candidate_dirs:
+        for profile_path in user_data_root.iterdir():
+            if profile_path.is_dir() and (profile_path / "Sessions").exists():
+                candidate_dirs.add(profile_path.name)
+
+    if not candidate_dirs:
         return []
 
-    candidate_dirs = set(running_profiles)
     for profile_dir in profile_names:
         if (user_data_root / profile_dir / "Sessions").exists():
             candidate_dirs.add(profile_dir)
@@ -351,26 +400,26 @@ def get_browser_by_id(browser_id: str) -> BrowserInstance | None:
     return None
 
 
-def archive_all_open_browsers() -> dict[str, object]:
-    from app.storage import archive_tabs
+def archive_all_open_browsers(save_name: str) -> dict[str, object]:
+    from app.storage import archive_browser_tabs, resolve_save_name
 
     browsers = discover_open_browsers()
     archived: list[dict[str, object]] = []
     total_tabs = 0
-    date_value = ""
+    resolved_name = resolve_save_name(save_name)
 
     for browser in browsers:
         tab_payload = [{"url": tab.url, "title": tab.title} for tab in browser.tabs]
         if not tab_payload:
             continue
-        day_entry = archive_tabs(
+        save_entry = archive_browser_tabs(
+            save_name=resolved_name,
             browser_id=browser.id,
             browser_name=browser.display_name,
             browser_key=browser.browser_key,
             executable=browser.executable,
             tabs=tab_payload,
         )
-        date_value = day_entry["date"]
         total_tabs += len(tab_payload)
         archived.append(
             {
@@ -382,7 +431,7 @@ def archive_all_open_browsers() -> dict[str, object]:
 
     return {
         "success": bool(archived),
-        "date": date_value,
+        "save_name": resolved_name,
         "browser_count": len(archived),
         "total_tabs": total_tabs,
         "browsers": archived,
