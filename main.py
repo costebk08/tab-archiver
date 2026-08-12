@@ -199,6 +199,25 @@ def open_all(payload: OpenAllRequest):
 
 DEFAULT_PORT = 8765
 MAX_PORT = 8775
+MIN_FEATURE_VERSION = (1, 1, 0)
+
+
+def parse_version(version: str) -> tuple[int, ...]:
+    parts: list[int] = []
+    for piece in str(version).lstrip("v").split("."):
+        try:
+            parts.append(int(piece))
+        except ValueError:
+            break
+    return tuple(parts or [0])
+
+
+def version_at_least(version: str, minimum: tuple[int, ...]) -> bool:
+    current = parse_version(version)
+    length = max(len(current), len(minimum))
+    current = current + (0,) * (length - len(current))
+    minimum = minimum + (0,) * (length - len(minimum))
+    return current >= minimum
 
 
 def is_tab_archiver_running(port: int) -> bool:
@@ -214,6 +233,31 @@ def is_tab_archiver_running(port: int) -> bool:
         return False
 
 
+def get_server_settings(port: int) -> dict | None:
+    import json
+    import urllib.error
+    import urllib.request
+
+    try:
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/settings", timeout=1) as response:
+            data = json.loads(response.read().decode("utf-8"))
+            return data if isinstance(data, dict) else None
+    except (OSError, urllib.error.URLError, json.JSONDecodeError, ValueError):
+        return None
+
+
+def find_stale_instances() -> list[tuple[int, str]]:
+    stale: list[tuple[int, str]] = []
+    for port in range(DEFAULT_PORT, MAX_PORT + 1):
+        if not is_tab_archiver_running(port):
+            continue
+        settings = get_server_settings(port)
+        version = str((settings or {}).get("version") or "unknown")
+        if not version_at_least(version, MIN_FEATURE_VERSION):
+            stale.append((port, version))
+    return stale
+
+
 def is_port_free(port: int) -> bool:
     import socket
 
@@ -227,7 +271,11 @@ def is_port_free(port: int) -> bool:
 
 def find_running_instance() -> int | None:
     for port in range(DEFAULT_PORT, MAX_PORT + 1):
-        if is_tab_archiver_running(port):
+        if not is_tab_archiver_running(port):
+            continue
+        settings = get_server_settings(port)
+        version = str((settings or {}).get("version") or "0")
+        if version_at_least(version, MIN_FEATURE_VERSION):
             return port
     return None
 
@@ -260,6 +308,12 @@ def main() -> None:
 
     os.chdir(BASE_DIR)
     print_update_notice()
+
+    for stale_port, stale_version in find_stale_instances():
+        print(
+            f"Warning: Tab Archiver v{stale_version} is still running on port {stale_port}. "
+            "Close that window so Archive All and Export Backup work correctly."
+        )
 
     running_port = find_running_instance()
     if running_port is not None:

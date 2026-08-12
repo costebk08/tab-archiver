@@ -45,6 +45,21 @@ function closeModal(modal) {
   modal.setAttribute("aria-hidden", "true");
 }
 
+function formatApiError(detail, status) {
+  const message = Array.isArray(detail)
+    ? detail.map((item) => item.msg || item).join(", ")
+    : detail || "Request failed";
+
+  if (status === 404 && String(message).toLowerCase() === "not found") {
+    return (
+      "This feature requires Tab Archiver v1.1.0 or newer. " +
+      "Close every Tab Archiver window, end any leftover Tab Archiver process, and launch the app again."
+    );
+  }
+
+  return message;
+}
+
 async function fetchJson(url, options = {}) {
   const response = await fetch(url, {
     headers: { "Content-Type": "application/json" },
@@ -53,10 +68,35 @@ async function fetchJson(url, options = {}) {
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: response.statusText }));
-    throw new Error(error.detail || "Request failed");
+    throw new Error(formatApiError(error.detail, response.status));
   }
 
   return response.json();
+}
+
+function versionAtLeast(version, minimum) {
+  const parse = (value) =>
+    String(value)
+      .replace(/^v/, "")
+      .split(".")
+      .map((part) => parseInt(part, 10) || 0);
+
+  const current = parse(version);
+  const min = parse(minimum);
+  const length = Math.max(current.length, min.length);
+
+  for (let index = 0; index < length; index += 1) {
+    const currentPart = current[index] || 0;
+    const minPart = min[index] || 0;
+    if (currentPart > minPart) {
+      return true;
+    }
+    if (currentPart < minPart) {
+      return false;
+    }
+  }
+
+  return true;
 }
 
 function formatDate(dateString) {
@@ -400,6 +440,12 @@ async function loadSettings() {
   }
   if (startAtLogin) {
     startAtLogin.checked = Boolean(settings.start_at_login);
+  }
+
+  if (!versionAtLeast(settings.version, "1.1.0")) {
+    heroStatus.textContent =
+      "You are connected to an older Tab Archiver server. Close all Tab Archiver windows and restart the app to use Archive All and Export Backup.";
+    heroStatus.className = "status-message error";
   }
 }
 
