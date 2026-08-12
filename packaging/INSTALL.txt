@@ -1,0 +1,26 @@
+Tab Archiver - Windows install notes
+====================================
+
+SmartScreen warning
+-------------------
+Windows may show "Windows protected your PC" the first time you run Tab Archiver.exe.
+This is normal for new, unsigned apps and does not necessarily mean the app is unsafe.
+
+To continue:
+1. Click "More info"
+2. Click "Run anyway"
+
+If the app was downloaded from the internet:
+1. Right-click Tab Archiver.exe
+2. Choose Properties
+3. Check "Unblock" if shown, then click OK
+
+Alternative without SmartScreen
+-------------------------------
+If you prefer not to use the packaged .exe, run from source instead:
+1. Install Python 3.10+
+2. Double-click "Launch Tab Archiver.bat" in the project folder
+
+Code signing
+------------
+Future releases can be signed to reduce SmartScreen prompts. v1.0.1 is unsigned.

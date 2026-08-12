@@ -80,6 +80,16 @@ h1 {
   color: var(--accent);
 }
 
+.notice {
+  margin-top: 1rem;
+  padding: 0.9rem 1rem;
+  border-radius: 12px;
+  border: 1px solid rgba(59, 130, 246, 0.35);
+  background: rgba(59, 130, 246, 0.08);
+  color: var(--muted);
+  line-height: 1.5;
+}
+
 ol,
 ul {
   margin: 0;

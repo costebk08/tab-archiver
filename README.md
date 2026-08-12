@@ -14,6 +14,8 @@ Get the latest packaged build from the [download page](https://costebk08.github.
 | macOS | `Tab-Archiver-macOS.dmg` |
 | Linux | `Tab-Archiver-Linux.tar.gz` |
 
+**Windows SmartScreen:** the first launch of an unsigned app may show “Windows protected your PC.” Click **More info**, then **Run anyway**. See `INSTALL.txt` in the zip for details.
+
 ### How to use
 
 1. **Download** the build for your operating system

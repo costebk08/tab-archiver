@@ -32,7 +32,9 @@ jobs:
         run: pyinstaller packaging/tab_archiver.spec --noconfirm
 
       - name: Package Windows release
-        run: Compress-Archive -Path "dist/Tab Archiver.exe" -DestinationPath "Tab-Archiver-Windows.zip"
+        run: |
+          Copy-Item packaging/INSTALL.txt dist/INSTALL.txt
+          Compress-Archive -Path "dist/Tab Archiver.exe","dist/INSTALL.txt" -DestinationPath "Tab-Archiver-Windows.zip"
 
       - uses: actions/upload-artifact@v4
         with:
