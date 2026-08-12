@@ -1,0 +1,11 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+tab-archiver-sessions/
+build/
+dist/
+*.spec.bak
+Tab-Archiver-Windows.zip
+Tab-Archiver-macOS.dmg
+Tab-Archiver-Linux.tar.gz

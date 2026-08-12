@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Tab Archiver — Download</title>
+    <link rel="stylesheet" href="install.css" />
+  </head>
+  <body>
+    <main class="page">
+      <section class="hero">
+        <p class="eyebrow">Local tab backup for Chrome, Edge, Brave, and Firefox</p>
+        <h1>Tab Archiver</h1>
+        <p class="lede">
+          Save the websites you have open, archive the ones you care about, and reopen them later after a browser restart or shutdown.
+        </p>
+        <div class="downloads">
+          <a id="downloadWindows" class="download-button" href="#">Download for Windows</a>
+          <a id="downloadMac" class="download-button" href="#">Download for macOS</a>
+          <a id="downloadLinux" class="download-button" href="#">Download for Linux</a>
+        </div>
+        <p class="note">
+          No git clone required. No Python install required for packaged downloads.
+          <a id="latestReleaseLink" href="#">View all releases</a>
+        </p>
+      </section>
+
+      <section class="steps">
+        <h2>How to use</h2>
+        <ol>
+          <li><strong>Download</strong> the installer for your operating system.</li>
+          <li><strong>Open the app</strong> and leave it running in the background.</li>
+          <li><strong>Click Render Open Websites</strong>, choose a browser, select tabs, and archive them.</li>
+        </ol>
+      </section>
+
+      <section class="details">
+        <h2>What you get</h2>
+        <ul>
+          <li>Works on Windows, macOS, and Linux</li>
+          <li>Local history stored in your home folder</li>
+          <li>Open All restores archived websites in one click</li>
+          <li>Optional start-at-login and update notifications in the app</li>
+        </ul>
+      </section>
+    </main>
+
+    <script>
+      const repo = "costebk08/tab-archiver";
+      const latestRelease = `https://github.com/${repo}/releases/latest`;
+      const downloads = {
+        windows: `${latestRelease}/download/Tab-Archiver-Windows.zip`,
+        mac: `${latestRelease}/download/Tab-Archiver-macOS.dmg`,
+        linux: `${latestRelease}/download/Tab-Archiver-Linux.tar.gz`,
+      };
+
+      document.getElementById("downloadWindows").href = downloads.windows;
+      document.getElementById("downloadMac").href = downloads.mac;
+      document.getElementById("downloadLinux").href = downloads.linux;
+      document.getElementById("latestReleaseLink").href = latestRelease;
+    </script>
+  </body>
+</html>

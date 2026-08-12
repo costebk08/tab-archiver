@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Tab Archiver</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <div class="layout">
+      <header class="top-bar">
+        <div class="app-title">
+          <span>Tab Archiver</span>
+          <small id="appVersion"></small>
+        </div>
+        <label class="settings-toggle">
+          <input id="startAtLogin" type="checkbox" />
+          Start at login
+        </label>
+      </header>
+
+      <div id="updateBanner" class="update-banner hidden">
+        <div>
+          <strong id="updateBannerTitle">Update available</strong>
+          <p id="updateBannerText"></p>
+        </div>
+        <a id="updateBannerLink" class="secondary-button" href="#" target="_blank" rel="noopener noreferrer">
+          Download update
+        </a>
+      </div>
+
+      <main class="hero">
+        <button id="renderButton" class="primary-button" type="button">
+          Render Open Websites
+        </button>
+      </main>
+
+      <section class="history-panel">
+        <h2>Archive History</h2>
+        <div id="historyContainer">
+          <p class="history-empty">No archived tabs yet. Click the button above to get started.</p>
+        </div>
+      </section>
+    </div>
+
+    <div id="browserModal" class="modal-backdrop" aria-hidden="true">
+      <div class="modal" role="dialog" aria-labelledby="browserModalTitle">
+        <div class="modal-header">
+          <h3 id="browserModalTitle">Choose a Browser</h3>
+        </div>
+        <div class="modal-body">
+          <div id="browserList"></div>
+          <p id="browserStatus" class="status-message"></p>
+        </div>
+        <div class="modal-footer">
+          <button id="closeBrowserModal" class="ghost-button" type="button">Cancel</button>
+          <button id="selectBrowserButton" class="primary-button" type="button" disabled>
+            Select Browser
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div id="tabsModal" class="modal-backdrop" aria-hidden="true">
+      <div class="modal large" role="dialog" aria-labelledby="tabsModalTitle">
+        <div class="modal-header">
+          <h3 id="tabsModalTitle">Open Websites</h3>
+        </div>
+        <div class="modal-body">
+          <div class="toolbar">
+            <button id="selectAllButton" class="secondary-button" type="button">Select All</button>
+            <button id="deselectAllButton" class="secondary-button" type="button">Deselect All</button>
+            <button id="archiveButton" class="primary-button" type="button">Archive</button>
+          </div>
+          <div id="tabsList"></div>
+          <p id="tabsStatus" class="status-message"></p>
+        </div>
+        <div class="modal-footer">
+          <button id="closeTabsModal" class="ghost-button" type="button">Close</button>
+        </div>
+      </div>
+    </div>
+
+    <script src="/static/app.js"></script>
+  </body>
+</html>
