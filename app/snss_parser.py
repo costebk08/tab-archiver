@@ -64,38 +64,60 @@ def _read_uint32(content: bytes, offset: int = 0) -> int | None:
     return struct.unpack("I", content[offset : offset + 4])[0]
 
 
-def _parse_update_tab_navigation(content: bytes) -> tuple[int, str, str] | None:
-    stream = BytesIO(content)
-    stream.seek(0, os.SEEK_END)
-    pickle_size = stream.tell()
-    stream.seek(0, os.SEEK_SET)
-
-    if pickle_size < 12:
+def _read_stream_uint32(stream: BytesIO, end: int) -> int | None:
+    if stream.tell() + 4 > end:
         return None
+    data = stream.read(4)
+    if len(data) != 4:
+        return None
+    return struct.unpack("I", data)[0]
 
-    struct.unpack("I", stream.read(4))
-    tab_id = struct.unpack("I", stream.read(4))[0]
-    struct.unpack("I", stream.read(4))
 
-    def read_str8() -> str:
-        str_length = struct.unpack("I", stream.read(4))[0]
-        padding = 4 - (str_length % 4) if str_length % 4 else 0
-        if str_length > pickle_size - stream.tell():
-            return ""
-        raw = stream.read(str_length + padding)[:str_length]
-        return raw.decode("utf-8", errors="ignore")
+def _read_stream_str8(stream: BytesIO, end: int) -> str:
+    str_length = _read_stream_uint32(stream, end)
+    if str_length is None or str_length < 0:
+        return ""
+    padding = 4 - (str_length % 4) if str_length % 4 else 0
+    if stream.tell() + str_length + padding > end:
+        return ""
+    raw = stream.read(str_length + padding)[:str_length]
+    return raw.decode("utf-8", errors="ignore")
 
-    def read_str16() -> str:
-        str_length = struct.unpack("I", stream.read(4))[0] * 2
-        padding = 4 - (str_length % 4) if str_length % 4 else 0
-        if str_length > pickle_size - stream.tell():
-            return ""
-        raw = stream.read(str_length + padding)[:str_length]
-        return raw.decode("utf-16", errors="ignore")
 
-    url = read_str8()
-    title = read_str16()
-    return tab_id, url, title
+def _read_stream_str16(stream: BytesIO, end: int) -> str:
+    str_units = _read_stream_uint32(stream, end)
+    if str_units is None or str_units < 0:
+        return ""
+    str_length = str_units * 2
+    padding = 4 - (str_length % 4) if str_length % 4 else 0
+    if stream.tell() + str_length + padding > end:
+        return ""
+    raw = stream.read(str_length + padding)[:str_length]
+    return raw.decode("utf-16", errors="ignore")
+
+
+def _parse_update_tab_navigation(content: bytes) -> tuple[int, str, str] | None:
+    try:
+        stream = BytesIO(content)
+        end = len(content)
+        if end < 12:
+            return None
+
+        if _read_stream_uint32(stream, end) is None:
+            return None
+        tab_id = _read_stream_uint32(stream, end)
+        if tab_id is None:
+            return None
+        if _read_stream_uint32(stream, end) is None:
+            return None
+
+        url = _read_stream_str8(stream, end)
+        title = _read_stream_str16(stream, end)
+        if not url:
+            return None
+        return tab_id, url, title or url
+    except struct.error:
+        return None
 
 
 def _is_valid_web_url(url: str) -> bool:
@@ -148,7 +170,11 @@ def extract_tabs_from_commands(
             continue
 
         if command.id in NAVIGATION_COMMANDS:
-            parsed = _parse_update_tab_navigation(command.content)
+            try:
+                parsed = _parse_update_tab_navigation(command.content)
+            except (struct.error, ValueError, IndexError):
+                parsed = None
+
             if parsed:
                 tab_id, url, title = parsed
                 if _is_valid_web_url(url):
